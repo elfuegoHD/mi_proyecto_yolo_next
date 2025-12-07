@@ -44,7 +44,7 @@ const procesarPredicciones = (output: tf.Tensor): Prediction[] => {
       const area = ancho * alto;
 
       // Filtrar por confianza y tamaño mínimo del box
-      return confianza > 0.75 && area > 500; // Ajusta estos valores según tu dataset
+      return confianza > 0.60 && area > 500; // Ajusta estos valores según tu dataset
     })
     .map((box) => ({
       x_min: box[0],
