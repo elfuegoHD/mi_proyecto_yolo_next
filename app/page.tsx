@@ -32,32 +32,33 @@ export default function Home() {
     cargarModelo();
   }, []);
 
-  // Procesar predicciones de YOLO
-  const procesarPredicciones = (output: tf.Tensor): Prediction[] => {
-    const datos = (output as any).arraySync()[0] as number[][];
+ // Procesar predicciones de YOLO
+const procesarPredicciones = (output: tf.Tensor): Prediction[] => {
+  const datos = (output as any).arraySync()[0] as number[][];
 
-    const resultados: Prediction[] = datos
-      .filter((box) => {
-        const confianza = box[4];
-        const ancho = box[2] - box[0];
-        const alto = box[3] - box[1];
-        const area = ancho * alto;
+  const resultados: Prediction[] = datos
+    .filter((box) => {
+      const confianza = box[4];
+      const ancho = box[2] - box[0];
+      const alto = box[3] - box[1];
+      const area = ancho * alto;
 
-        // Ajuste: menor umbral de confianza y área mínima más pequeña
-        return confianza > 0.05 && area > 100;
-      })
-      .map((box) => ({
-        x_min: box[0],
-        y_min: box[1],
-        x_max: box[2],
-        y_max: box[3],
-        confidence: box[4],
-        class_id: box[5],
-        label: "Araña Roja",
-      }));
+      // Filtrar por confianza y tamaño mínimo del box
+      return confianza > 0.75 && area > 500; // Ajusta estos valores según tu dataset
+    })
+    .map((box) => ({
+      x_min: box[0],
+      y_min: box[1],
+      x_max: box[2],
+      y_max: box[3],
+      confidence: box[4],
+      class_id: box[5],
+      label: "Araña Roja",
+    }));
 
-    return resultados;
-  };
+  return resultados;
+};
+
 
   // Dibujar boxes en canvas adaptado al tamaño visible
   const dibujarCanvas = (preds: Prediction[]) => {
@@ -118,20 +119,14 @@ export default function Home() {
       setMensaje(`⚠️ Se detectó Araña Roja (${pred.length} detección/es)`);
       setMensajeColor("red");
     } else {
-      setMensaje("⚠️ Posible Araña Roja, revisar manualmente");
-      setMensajeColor("orange");
+      setMensaje("✅ No se detectó Araña Roja");
+      setMensajeColor("green");
 
       if (canvasRef.current && imageRef.current) {
         const ctx = canvasRef.current.getContext("2d");
         if (!ctx) return;
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        ctx.drawImage(
-          imageRef.current,
-          0,
-          0,
-          imageRef.current.width,
-          imageRef.current.height
-        );
+        ctx.drawImage(imageRef.current, 0, 0, imageRef.current.width, imageRef.current.height);
       }
     }
 
@@ -174,11 +169,7 @@ export default function Home() {
             }}
           >
             <div
-              style={{
-                textAlign: "center",
-                fontWeight: "bold",
-                marginBottom: 10,
-              }}
+              style={{ textAlign: "center", fontWeight: "bold", marginBottom: 10 }}
             >
               Imagen a predecir
             </div>
@@ -187,33 +178,18 @@ export default function Home() {
                 ref={imageRef}
                 src={URL.createObjectURL(imageFile)}
                 alt="Imagen a predecir"
-                style={{
-                  width: "100%",
-                  height: "auto",
-                  display: "block",
-                  borderRadius: 8,
-                }}
+                style={{ width: "100%", height: "auto", display: "block", borderRadius: 8 }}
                 onLoad={() => {
                   if (canvasRef.current && imageRef.current) {
                     canvasRef.current.width = imageRef.current.width;
                     canvasRef.current.height = imageRef.current.height;
                     const ctx = canvasRef.current.getContext("2d");
                     if (!ctx) return;
-                    ctx.clearRect(
-                      0,
-                      0,
-                      canvasRef.current.width,
-                      canvasRef.current.height
-                    );
-                    ctx.drawImage(
-                      imageRef.current,
-                      0,
-                      0,
-                      imageRef.current.width,
-                      imageRef.current.height
-                    );
+                    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+                    ctx.drawImage(imageRef.current, 0, 0, imageRef.current.width, imageRef.current.height);
                   }
                 }}
+
               />
               <canvas
                 ref={canvasRef}
