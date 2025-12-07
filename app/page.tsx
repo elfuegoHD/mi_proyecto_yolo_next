@@ -1,65 +1,245 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import * as tf from "@tensorflow/tfjs";
+
+interface Prediction {
+  x_min: number;
+  y_min: number;
+  x_max: number;
+  y_max: number;
+  confidence: number;
+  class_id: number;
+  label: string;
+}
 
 export default function Home() {
+  const [model, setModel] = useState<tf.GraphModel | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [mensaje, setMensaje] = useState<string>("");
+  const [mensajeColor, setMensajeColor] = useState<string>("black");
+  const imageRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Cargar modelo al iniciar
+  useEffect(() => {
+    const cargarModelo = async () => {
+      const m = await tf.loadGraphModel("/best_web_model/model.json");
+      setModel(m);
+      console.log("Modelo cargado ✅");
+    };
+    cargarModelo();
+  }, []);
+
+ // Procesar predicciones de YOLO
+const procesarPredicciones = (output: tf.Tensor): Prediction[] => {
+  const datos = (output as any).arraySync()[0] as number[][];
+
+  const resultados: Prediction[] = datos
+    .filter((box) => {
+      const confianza = box[4];
+      const ancho = box[2] - box[0];
+      const alto = box[3] - box[1];
+      const area = ancho * alto;
+
+      // Filtrar por confianza y tamaño mínimo del box
+      return confianza > 0.75 && area > 500; // Ajusta estos valores según tu dataset
+    })
+    .map((box) => ({
+      x_min: box[0],
+      y_min: box[1],
+      x_max: box[2],
+      y_max: box[3],
+      confidence: box[4],
+      class_id: box[5],
+      label: "Araña Roja",
+    }));
+
+  return resultados;
+};
+
+
+  // Dibujar boxes en canvas adaptado al tamaño visible
+  const dibujarCanvas = (preds: Prediction[]) => {
+    if (!canvasRef.current || !imageRef.current) return;
+    const ctx = canvasRef.current.getContext("2d");
+    if (!ctx) return;
+
+    const img = imageRef.current;
+    const scaleX = img.width / img.naturalWidth;
+    const scaleY = img.height / img.naturalHeight;
+
+    canvasRef.current.width = img.width;
+    canvasRef.current.height = img.height;
+    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+
+    // dibujar imagen base
+    ctx.drawImage(img, 0, 0, img.width, img.height);
+
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 3;
+    ctx.font = `${16 * scaleX}px Arial`;
+    ctx.fillStyle = "red";
+
+    preds.forEach((p) => {
+      const x = p.x_min * img.width;
+      const y = p.y_min * img.height;
+      const w = (p.x_max - p.x_min) * img.width;
+      const h = (p.y_max - p.y_min) * img.height;
+
+      ctx.strokeRect(x, y, w, h);
+      ctx.fillText(
+        `${p.label} ${(p.confidence * 100).toFixed(1)}%`,
+        x,
+        y > 20 ? y - 5 : y + 20
+      );
+    });
+  };
+
+  // Ejecutar predicción
+  const handlePredict = async () => {
+    if (!model || !imageRef.current) return;
+
+    setMensaje("Procesando...");
+    setMensajeColor("black");
+    setPredictions([]);
+
+    const img = tf.browser.fromPixels(imageRef.current).toFloat();
+    const resized = tf.image.resizeBilinear(img, [640, 640]);
+    const expanded = resized.expandDims(0);
+
+    const output = model.execute(expanded) as tf.Tensor;
+    const pred = procesarPredicciones(output);
+
+    setPredictions(pred);
+    dibujarCanvas(pred);
+
+    if (pred.length > 0) {
+      setMensaje(`⚠️ Se detectó Araña Roja (${pred.length} detección/es)`);
+      setMensajeColor("red");
+    } else {
+      setMensaje("✅ No se detectó Araña Roja");
+      setMensajeColor("green");
+
+      if (canvasRef.current && imageRef.current) {
+        const ctx = canvasRef.current.getContext("2d");
+        if (!ctx) return;
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        ctx.drawImage(imageRef.current, 0, 0, imageRef.current.width, imageRef.current.height);
+      }
+    }
+
+    tf.dispose([img, resized, expanded, output]);
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div
+      style={{
+        padding: "20px",
+        fontFamily: "Arial, sans-serif",
+        display: "flex",
+        justifyContent: "center",
+      }}
+    >
+      <div style={{ maxWidth: "750px", width: "100%" }}>
+        <h1 style={{ textAlign: "center" }}>
+          Detección de Araña Roja en Aguacate
+        </h1>
+
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => {
+            if (e.target.files) setImageFile(e.target.files[0]);
+          }}
+          style={{ marginTop: 20, display: "block", width: "100%" }}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+
+        {imageFile && (
+          <div
+            style={{
+              marginTop: 20,
+              border: "2px solid #ddd",
+              borderRadius: 12,
+              padding: 15,
+              backgroundColor: "#f9f9f9",
+              boxShadow: "0 4px 10px rgba(0,0,0,0.1)",
+              position: "relative",
+            }}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+            <div
+              style={{ textAlign: "center", fontWeight: "bold", marginBottom: 10 }}
+            >
+              Imagen a predecir
+            </div>
+            <div style={{ position: "relative" }}>
+              <img
+                ref={imageRef}
+                src={URL.createObjectURL(imageFile)}
+                alt="Imagen a predecir"
+                style={{ width: "100%", height: "auto", display: "block", borderRadius: 8 }}
+                onLoad={() => {
+                  if (canvasRef.current && imageRef.current) {
+                    canvasRef.current.width = imageRef.current.width;
+                    canvasRef.current.height = imageRef.current.height;
+                    const ctx = canvasRef.current.getContext("2d");
+                    if (!ctx) return;
+                    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+                    ctx.drawImage(imageRef.current, 0, 0, imageRef.current.width, imageRef.current.height);
+                  }
+                }}
+
+              />
+              <canvas
+                ref={canvasRef}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  borderRadius: 8,
+                  pointerEvents: "none",
+                }}
+              />
+            </div>
+
+            <button
+              onClick={handlePredict}
+              disabled={!model || !imageFile}
+              style={{
+                marginTop: 15,
+                padding: "12px 25px",
+                fontSize: 16,
+                borderRadius: 6,
+                backgroundColor: "#007bff",
+                color: "white",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "bold",
+              }}
+            >
+              Detectar Araña Roja
+            </button>
+
+            {mensaje && (
+              <div
+                style={{
+                  marginTop: 15,
+                  padding: 12,
+                  backgroundColor: "#f1f1f1",
+                  borderRadius: 8,
+                  fontWeight: "bold",
+                  textAlign: "center",
+                  color: mensajeColor,
+                  fontSize: 16,
+                }}
+              >
+                {mensaje}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
